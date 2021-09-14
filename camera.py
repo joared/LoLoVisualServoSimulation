@@ -150,61 +150,6 @@ class Camera:
         r = rw*r
         self.rotation = r.as_matrix()
 
-    def control_backup(self, targets, features, lamb=0.1):
-        """
-        TODO: should only take projected features as argument and estimate Z
-        """
-        # How come this works differently from when rotating camera and features??
-        cameraFrameRot = R.from_euler("XYZ", (0, np.pi/2, -np.pi/2)).as_matrix().transpose()
-
-        projectedFeatures = []
-        for feature in features:
-            projPoint = self.globalToImage(feature)
-            projectedFeatures.append((-projPoint[0], -projPoint[1]))
-
-        targets = [(-t[0], -t[1]) for t in targets]
-
-        Lx = []
-        for feat, target in zip(features, targets):
-            #Z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
-            #x = np.dot(np.array(feat) - np.array(self.translation), -self.rotation[:, 1]) / Z
-            #y = np.dot(np.array(feat) - np.array(self.translation), -self.rotation[:, 2]) / Z
-            
-            X = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
-            y = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 1]) / X
-            z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 2]) / X
-            x, y, Z = np.matmul(cameraFrameRot, [X, y, z])
-
-            Le = [[-1/Z, 0, x/Z, x*y, -(1+x*x), y],
-                  [0, -1/Z, y/Z, 1+y*y, -x*y, -x]]
-
-            x = target[0]
-            y = target[1]
-            X = 1*np.sign(x) # hard coded
-            Z = X/x
-            
-            LeStar = [[-1/Z, 0, x/Z, x*y, -(1+x*x), y],
-                      [0, -1/Z, y/Z, 1+y*y, -x*y, -x]]
-
-            LeeStar = (np.array(Le) + np.array(LeStar))/2
-
-            alpha = 0.01
-            LeFabulous = (alpha*np.array(Le) + (1-alpha)*np.array(LeStar))
-
-            L = LeeStar
-
-            Lx.append(np.row_stack(L))
-
-        Lx = np.row_stack(Lx)
-        LxPinv = np.linalg.pinv(Lx)
-        err = np.array([v for f in projectedFeatures for v in f]) - np.array([ v for t in targets for v in t])
-        v = -lamb*np.matmul(LxPinv, err)
-
-        vel = np.matmul(cameraFrameRot.transpose(), v[:3])
-        w = np.matmul(cameraFrameRot.transpose(), v[3:])
-        v = [*vel, *w]
-        return v, err
-
     def interactionMatrix(self, X, y, z):
         return [[y/X, -1/X, 0, z, y*z, -(y*y+1)],
                 [z/X, 0, -1/X, -y, 1+z*z, -z*y]]
@@ -213,11 +158,11 @@ class Camera:
         """
         TODO: should only take projected features as argument and estimate Z
         """
-        projectedFeatures = []
-        for feature in features:
-            projectedFeatures.append(self.globalToImage(feature))
 
         Lx = []
+
+        YDesired = np.linalg.norm(np.array(features[1]) - np.array(features[0]))/2
+
         for feat, target in zip(features, targets):
             #Z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
             #x = np.dot(np.array(feat) - np.array(self.translation), -self.rotation[:, 1]) / Z
@@ -231,7 +176,8 @@ class Camera:
 
             y = target[0]
             z = target[1]
-            Y = 1*np.sign(y) # hard coded
+
+            Y = YDesired*np.sign(y) # hard coded
             X = Y/y
             
             LeStar = self.interactionMatrix(X, y, z)
@@ -249,6 +195,7 @@ class Camera:
 
             Lx.append(np.row_stack(L))
 
+        projectedFeatures = [self.globalToImage(feature) for feature in features]
         Lx = np.row_stack(Lx)
         LxPinv = np.linalg.pinv(Lx)
         err = np.array([v for f in projectedFeatures for v in f]) - np.array([ v for t in targets for v in t])
