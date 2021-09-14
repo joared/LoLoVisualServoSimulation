@@ -33,7 +33,7 @@ class FeatureSet:
 
 class Camera:
     # https://stackoverflow.com/questions/11140163/plotting-a-3d-cube-a-sphere-and-a-vector-in-matplotlib
-    def __init__(self, translation=(0,0,0), euler=(0, 0, 0)):
+    def __init__(self, translation=(0,0,0), euler=(0, 0, 0), controlRule="Le"):
         f = 1 # focal length
         self.f = f
         self.imSize = 2
@@ -45,7 +45,14 @@ class Camera:
 
         r = R.from_euler("XYZ", euler)
         self.rotation = r.as_matrix()
+        self.initialRotation = r.as_matrix()
         self.translation = list(translation)
+        self.initialTranslation = list(translation)
+        self.controlRule = controlRule
+
+    def reset(self):
+        self.rotation = self.initialRotation
+        self.translation = self.initialTranslation.copy()
 
     def transformedPoints(self):
         transformedPoints = []
@@ -143,36 +150,7 @@ class Camera:
         r = rw*r
         self.rotation = r.as_matrix()
 
-    def _control(self, targets, features, lamb=0.1):
-        """
-        TODO: should only take projected features as argument and estimate Z
-        """
-        projectedFeatures = []
-        for feature in features:
-            projectedFeatures.append(self.globalToImage(feature))
-
-        cameraFrameRot = R.from_euler("XYZ", (0, np.pi/2, -np.pi/2)).as_matrix().transpose()
-
-        Lx = []
-        for pFeat, feat, target in zip(projectedFeatures, features, targets):
-            X = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
-            y = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 1]) / X
-            z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 2]) / X
-            x, y, Z = np.matmul(cameraFrameRot, [X, y, z])
-            
-            Lx.append(np.row_stack([[-1/Z, 0, x/Z, x*y, -(1+x*x), y],
-                                    [0, -1/Z, y/Z, 1+y*y, -x*y, -x]]))
-
-        Lx = np.row_stack(Lx)
-        LxPinv = np.linalg.pinv(Lx)
-        err = np.array([v for f in projectedFeatures for v in f]) - np.array([ v for t in targets for v in t])
-        v = -lamb*np.matmul(LxPinv, err)
-
-        # Hardcoded stuff to get control to work for different coordinate system
-        v = [-v[2], v[0], v[1], -v[5], v[3], v[4]]
-        return v, err
-
-    def control(self, targets, features, lamb=0.1):
+    def control_backup(self, targets, features, lamb=0.1):
         """
         TODO: should only take projected features as argument and estimate Z
         """
@@ -225,6 +203,57 @@ class Camera:
         vel = np.matmul(cameraFrameRot.transpose(), v[:3])
         w = np.matmul(cameraFrameRot.transpose(), v[3:])
         v = [*vel, *w]
+        return v, err
+
+    def interactionMatrix(self, X, y, z):
+        return [[y/X, -1/X, 0, z, y*z, -(y*y+1)],
+                [z/X, 0, -1/X, -y, 1+z*z, -z*y]]
+
+    def control(self, targets, features, lamb=0.1):
+        """
+        TODO: should only take projected features as argument and estimate Z
+        """
+        projectedFeatures = []
+        for feature in features:
+            projectedFeatures.append(self.globalToImage(feature))
+
+        Lx = []
+        for feat, target in zip(features, targets):
+            #Z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
+            #x = np.dot(np.array(feat) - np.array(self.translation), -self.rotation[:, 1]) / Z
+            #y = np.dot(np.array(feat) - np.array(self.translation), -self.rotation[:, 2]) / Z
+            
+            X = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
+            y = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 1]) / X
+            z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 2]) / X
+
+            Le = self.interactionMatrix(X, y, z)
+
+            y = target[0]
+            z = target[1]
+            Y = 1*np.sign(y) # hard coded
+            X = Y/y
+            
+            LeStar = self.interactionMatrix(X, y, z)
+
+            LeLeStar = (np.array(Le) + np.array(LeStar))/2
+
+            if self.controlRule == "Le":
+                L = Le
+            elif self.controlRule == "LeStar":
+                L = LeStar
+            elif self.controlRule == "LeLeStar":
+                L = LeLeStar
+            else:
+                raise Exception("Invalid control rule '{}'".format(self.controlRule))
+
+            Lx.append(np.row_stack(L))
+
+        Lx = np.row_stack(Lx)
+        LxPinv = np.linalg.pinv(Lx)
+        err = np.array([v for f in projectedFeatures for v in f]) - np.array([ v for t in targets for v in t])
+        v = -lamb*np.matmul(LxPinv, err)
+
         return v, err
 
     
