@@ -43,7 +43,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Process some integers.')
     parser.add_argument('--controlrule', '-c', type=str, default="Le",
-                        help='control rule for camera motion')
+                        help='control rule for camera motion (Le, LeStar or LeLeStar)')
     parser.add_argument('--scenario', '-s', default="stress",
                         help='choose camera and feature scenario')
 
