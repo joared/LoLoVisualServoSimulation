@@ -1,4 +1,5 @@
 from scipy.spatial.transform import Rotation as R
+import cv2 as cv
 
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
@@ -154,31 +155,56 @@ class Camera:
         return [[y/X, -1/X, 0, z, y*z, -(y*y+1)],
                 [z/X, 0, -1/X, -y, 1+z*z, -z*y]]
 
+    def controlPBVS(self, targets, features, lamb=0.1):
+        # Unfinished
+        projFeatures = np.array([self.globalToImage(f) for f in features])
+        success, rotation, translation = cv.solvePnP(np.array(features), 
+                                                     projFeatures, 
+                                                     np.array([[1, 0, 0], [0, 1, 0], [0, 0, self.f]]), 
+                                                     distCoeffs=np.zeros((4,1), dtype=np.float32), 
+                                                     useExtrinsicGuess=False,
+                                                     tvec=None,
+                                                     rvec=None,
+                                                     flags=cv.SOLVEPNP_ITERATIVE)
+
+        
+
     def control(self, targets, features, lamb=0.1):
         """
         TODO: should only take projected features as argument and estimate Z
         """
+        projectedFeatures = np.array([self.globalToImage(f) for f in features])
+        projectedFeatures += np.random.normal(0, 0.1, projectedFeatures.shape)
+        success, rotation, translation = cv.solvePnP(np.array(features), 
+                                                     projectedFeatures, 
+                                                     np.array([[1, 0, 0], [0, 1, 0], [0, 0, self.f]]), 
+                                                     distCoeffs=np.zeros((4,1), dtype=np.float32), 
+                                                     useExtrinsicGuess=False,
+                                                     tvec=None,
+                                                     rvec=None,
+                                                     flags=cv.SOLVEPNP_ITERATIVE)
+
+        print(translation)
+        estX = translation[2][0]
+        print(estX)
 
         Lx = []
 
-        YDesired = np.linalg.norm(np.array(features[1]) - np.array(features[0]))/2
+        YDesired = np.linalg.norm(np.array(features[1]) - np.array(features[0]))/2        
 
         for feat, target in zip(features, targets):
-            #Z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
-            #x = np.dot(np.array(feat) - np.array(self.translation), -self.rotation[:, 1]) / Z
-            #y = np.dot(np.array(feat) - np.array(self.translation), -self.rotation[:, 2]) / Z
             
             X = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
             y = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 1]) / X
             z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 2]) / X
 
-            Le = self.interactionMatrix(X, y, z)
+            Y = YDesired*np.sign(y) # hard coded
+            X = Y/y
+
+            Le = self.interactionMatrix(estX, y, z)
 
             y = target[0]
             z = target[1]
-
-            Y = YDesired*np.sign(y) # hard coded
-            X = Y/y
             
             LeStar = self.interactionMatrix(X, y, z)
 
@@ -193,9 +219,9 @@ class Camera:
             else:
                 raise Exception("Invalid control rule '{}'".format(self.controlRule))
 
-            Lx.append(np.row_stack(L))
+            #Lx.append(np.row_stack(L))
+            Lx.append(L)
 
-        projectedFeatures = [self.globalToImage(feature) for feature in features]
         Lx = np.row_stack(Lx)
         LxPinv = np.linalg.pinv(Lx)
         err = np.array([v for f in projectedFeatures for v in f]) - np.array([ v for t in targets for v in t])

@@ -35,6 +35,16 @@ def rotationTest(controlRule):
     targets = [[-0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [0.3, 0.3]]
     return camera, featureSet, targets
 
+def normalTest(controlRule):
+    camera = Camera(translation=(0.5, -4/0.3, 0), 
+                    euler=(0, 0, np.pi/2),
+                    controlRule=controlRule)
+    featureSet = FeatureSet([[1, 0, 1], [1, 0, -1], [-1, 0, -1], [-1, 0, 1]], 
+                            translation=(0, 0, 0), 
+                            euler=(0, -np.pi/4, 0))
+    targets = [[-0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [0.3, 0.3]]
+    return camera, featureSet, targets
+
 if __name__ == "__main__":
     # features: feature positions
     # targets: desired position of feature in image plane (y [left], z [up])
@@ -44,14 +54,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process some integers.')
     parser.add_argument('--controlrule', '-c', type=str, default="Le",
                         help='control rule for camera motion (Le, LeStar or LeLeStar)')
-    parser.add_argument('--scenario', '-s', default="stress",
+    parser.add_argument('--scenario', '-s', default="normal",
                         help='choose camera and feature scenario')
 
     args = parser.parse_args()
     print(args)
 
     controlRule = args.controlrule
-    if args.scenario == "rot":
+    if args.scenario == "normal":
+        camera, featureSet, targets = normalTest(controlRule)
+    elif args.scenario == "rot":
         camera, featureSet, targets = rotationTest(controlRule)
     elif args.scenario == "triangle":
         camera, featureSet, targets = triangle(controlRule)

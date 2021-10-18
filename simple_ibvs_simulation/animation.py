@@ -7,7 +7,8 @@ from matplotlib.widgets import Button
 class CameraAnimator:
     def __init__(self, camera, features, targets, controlCallback):
         self.camera = camera
-        self.features = features
+        self.features = features.copy() # noised features
+        self._features = features.copy() # un-noised features
         self.targets = targets
         self.controlCallback = controlCallback
         # camera trajectory
@@ -172,6 +173,7 @@ class CameraAnimator:
 
         if self.play:
             #self.controlCallback()
+            #self.features = list(np.array(self._features) + np.random.normal(0, 0.1, np.array(self._features).shape))
             v, err = self.camera.control(self.targets, self.features, lamb=0.01)    
             threshold = 0.001
             if not all([e < threshold for e in err]):
