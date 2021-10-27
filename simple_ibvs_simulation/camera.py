@@ -34,7 +34,7 @@ class FeatureSet:
 
 class Camera:
     # https://stackoverflow.com/questions/11140163/plotting-a-3d-cube-a-sphere-and-a-vector-in-matplotlib
-    def __init__(self, translation=(0,0,0), euler=(0, 0, 0), controlRule="Le"):
+    def __init__(self, translation=(0,0,0), euler=(0, 0, 0), controller="IBVS", controlRule="Le"):
         f = 1 # focal length
         self.f = f
         self.imSize = 2
@@ -49,6 +49,7 @@ class Camera:
         self.initialRotation = r.as_matrix()
         self.translation = list(translation)
         self.initialTranslation = list(translation)
+        self.controller = controller # IBVS or PBVS
         self.controlRule = controlRule
 
     def reset(self):
@@ -155,26 +156,78 @@ class Camera:
         return [[y/X, -1/X, 0, z, y*z, -(y*y+1)],
                 [z/X, 0, -1/X, -y, 1+z*z, -z*y]]
 
-    def controlPBVS(self, targets, features, lamb=0.1):
-        # Unfinished
-        projFeatures = np.array([self.globalToImage(f) for f in features])
+    def _interactionMatrix(self, x, y, Z):
+        return [[-1/Z, 0, x/Z, x*y, -(1+x*x), y],
+                [0, -1/Z, y/Z, 1+y*y, -x*y, -x]]
+
+    def control(self, targets, features, lamb=0.1):
+        if self.controller == "IBVS":
+            return self._controlIBVS(targets, features, lamb)
+        elif self.controller == "PBVS":
+            return self._controlPBVS(targets, features, lamb)
+        else:
+            raise Exception("Invalid controller '{}'".format(self.controller))
+
+    def _controlPBVS(self, targets, features, lamb=0.1):
+        """
+        targetTranlation and targetRotation expressed in feature frame
+        """
+        
+        # hard coded
+        targetTranslation = np.array([0, -0.33, 0])
+        targetRotation = R.from_euler("XYZ", (0, 0, np.pi/2)).as_matrix()
+
+        projectedFeatures = np.array([self.globalToImage(f) for f in features])
+        #projectedFeatures += np.random.normal(0, 0.03, projectedFeatures.shape)
+        #print(features)
+        #features = np.array([(x, z) for x, y, z in features])
+        print(projectedFeatures)
+        projectedFeatures = np.array([(z, -y) for y, z in projectedFeatures])
         success, rotation, translation = cv.solvePnP(np.array(features), 
-                                                     projFeatures, 
-                                                     np.array([[1, 0, 0], [0, 1, 0], [0, 0, self.f]]), 
+                                                     projectedFeatures, 
+                                                     np.array([[self.f, 0, self.imSize/2], [0, self.f, self.imSize/2], [0, 0, 1]]), 
+                                                     #np.array([[self.f, 0, 0], [0, self.f, 0], [0, 0, 1]]), 
                                                      distCoeffs=np.zeros((4,1), dtype=np.float32), 
                                                      useExtrinsicGuess=False,
                                                      tvec=None,
                                                      rvec=None,
                                                      flags=cv.SOLVEPNP_ITERATIVE)
 
-        
+        translation = translation[:, 0] # feature translation wrt camera
+        rotation = rotation[:, 0]       # feature rotation wrt camera
+        rotation = R.from_rotvec(rotation).as_matrix()
+        # to account for that this camera has x-axis pointing forward, y-axis left and z-axis up
+        rotDelta = R.from_euler("XYZ", (-np.pi/2, np.pi/2, 0)).as_matrix()
+        rotation = np.matmul(rotDelta, rotation)
+        translation = np.matmul(rotDelta, translation)
 
-    def control(self, targets, features, lamb=0.1):
+        #print(translation)
+        #print(rotation)
+        #return np.zeros(6), np.zeros(6)
+        
+        translationCamWRTTarget = -np.matmul(targetRotation.transpose(), targetTranslation) - np.matmul(rotation.transpose(), translation)
+        rotationCamWRTTarget = np.matmul(targetRotation.transpose(), rotation.transpose())
+        rotationCamWRTTargetRotVec = R.from_matrix(rotationCamWRTTarget).as_rotvec()
+        
+        Lx = [] # TODO
+
+        v = -lamb*np.matmul(rotationCamWRTTarget.transpose(), translationCamWRTTarget)
+        w = -lamb*rotationCamWRTTargetRotVec
+        print(v)
+        print(w)
+        velocity = np.concatenate((v, w))
+
+        err = np.concatenate((translationCamWRTTarget, rotationCamWRTTargetRotVec))
+
+        return velocity, err
+
+
+    def _controlIBVS(self, targets, features, lamb=0.1):
         """
         TODO: should only take projected features as argument and estimate Z
         """
         projectedFeatures = np.array([self.globalToImage(f) for f in features])
-        projectedFeatures += np.random.normal(0, 0.1, projectedFeatures.shape)
+        projectedFeatures += np.random.normal(0, 0.03, projectedFeatures.shape)
         success, rotation, translation = cv.solvePnP(np.array(features), 
                                                      projectedFeatures, 
                                                      np.array([[1, 0, 0], [0, 1, 0], [0, 0, self.f]]), 
@@ -184,29 +237,28 @@ class Camera:
                                                      rvec=None,
                                                      flags=cv.SOLVEPNP_ITERATIVE)
 
-        print(translation)
-        estX = translation[2][0]
-        print(estX)
+        #print(translation)
+        estX = translation[2][0] # estimate depth 
+        #print(estX)
 
         Lx = []
 
-        YDesired = np.linalg.norm(np.array(features[1]) - np.array(features[0]))/2        
+        YDesired = np.linalg.norm(np.array(features[1]) - np.array(features[0]))/2       
 
-        for feat, target in zip(features, targets):
-            
-            X = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
-            y = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 1]) / X
-            z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 2]) / X
-
-            Y = YDesired*np.sign(y) # hard coded
-            X = Y/y
+        for feat, target in zip(projectedFeatures, targets):
+            y = feat[0]
+            z = feat[1]
+            #X = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 0])
+            #y = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 1]) / X
+            #z = np.dot(np.array(feat) - np.array(self.translation), self.rotation[:, 2]) / X
 
             Le = self.interactionMatrix(estX, y, z)
 
             y = target[0]
             z = target[1]
             
-            LeStar = self.interactionMatrix(X, y, z)
+            Y = YDesired*np.sign(y) # hard coded
+            LeStar = self.interactionMatrix(Y/y, y, z)
 
             LeLeStar = (np.array(Le) + np.array(LeStar))/2
 

@@ -105,7 +105,8 @@ class CameraAnimator:
 
     def timeGen(self):
         err = [np.inf]
-        threshold = 0.001
+        #threshold = 0.001
+        threshold = -np.inf
         i = 0
         while not all([e < threshold for e in err]):
             yield i
@@ -185,9 +186,6 @@ class CameraAnimator:
                     for feature, featPos in zip(self.features, self.featurePositions):
                         projPoint = self.camera.globalToImage(feature)
                         featPos.append((-projPoint[0], projPoint[1]))
-
-        #self.ax.set_title("fps: {}, time: {}".format(round(i/self.elapsed), self.elapsed))
-        #self.info_text.set_text("fps: {}, time: {}".format(round(i/self.elapsed), self.elapsed))
 
         # plot camera
         points = self.camera.transformedPoints()
