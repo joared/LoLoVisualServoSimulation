@@ -34,7 +34,9 @@ class FeatureSet:
 
 class Camera:
     # https://stackoverflow.com/questions/11140163/plotting-a-3d-cube-a-sphere-and-a-vector-in-matplotlib
-    def __init__(self, translation=(0,0,0), euler=(0, 0, 0), controller="IBVS", controlRule="Le"):
+    def __init__(self, translation=(0,0,0), euler=(0, 0, 0), controller="IBVS1", lamb=0.01, noiseStd=0):
+        assert controller in ("IBVS1", "IBVS2", "PBVS1", "PBVS2", "PBVS3")
+
         f = 1 # focal length
         self.f = f
         self.imSize = 2
@@ -49,8 +51,9 @@ class Camera:
         self.initialRotation = r.as_matrix()
         self.translation = list(translation)
         self.initialTranslation = list(translation)
-        self.controller = controller # IBVS or PBVS
-        self.controlRule = controlRule
+        self.controller = controller
+        self.lamb = lamb
+        self.noiseStd = noiseStd # noise of the projected features
 
     def reset(self):
         self.rotation = self.initialRotation
@@ -162,15 +165,18 @@ class Camera:
         return [[-1/Z, 0, x/Z, x*y, -(1+x*x), y],
                 [0, -1/Z, y/Z, 1+y*y, -x*y, -x]]
 
-    def control(self, targets, features, lamb=0.1):
-        if self.controller == "IBVS":
-            return self._controlIBVS(targets, features, lamb)
-        elif self.controller == "PBVS":
-            return self._controlPBVS(targets, features, lamb)
+    def control(self, targets, features):
+        lamb = self.lamb
+        noiseStd = self.noiseStd
+
+        if self.controller in ("IBVS1", "IBVS2", "IBVS3"):
+            return self._controlIBVS(targets, features, lamb, noiseStd)
+        elif self.controller in ("PBVS1", "PBVS2"):
+            return self._controlPBVS(targets, features, lamb, noiseStd)
         else:
             raise Exception("Invalid controller '{}'".format(self.controller))
 
-    def _controlPBVS(self, targets, featureSet, lamb=0.1):
+    def _controlPBVS(self, targets, featureSet, lamb, noiseStd):
         """
         targetTranlation and targetRotation expressed in feature frame
         """
@@ -181,14 +187,10 @@ class Camera:
         targetRotation = R.from_euler("XYZ", (0, 0, np.pi/2)).as_matrix()
 
         projectedFeatures = np.array([self.globalToImage(f) for f in featureSet.transformedFeatures()])
-        #projectedFeatures += np.random.normal(0, 0.03, projectedFeatures.shape)
-        #print(features)
-        #features = np.array([(x, z) for x, y, z in features])
-        #print(projectedFeatures)
+        projectedFeatures += np.random.normal(0, noiseStd, projectedFeatures.shape)
+        
+        # convert to correct image coordinates for solvePnP
         projectedFeatures = np.array([(-y, -z) for y, z in projectedFeatures])
-        #print("PROJ", projectedFeatures)
-        #print("FEAT", features)
-        #input()
         features = np.array(features, dtype=np.float32)
         success, rotation, translation = cv.solvePnP(features, 
                                                      projectedFeatures, 
@@ -200,54 +202,58 @@ class Camera:
                                                      rvec=None,
                                                      flags=cv.SOLVEPNP_ITERATIVE)
 
-        translation = translation[:, 0] # feature translation wrt camera
-        rotation = rotation[:, 0]       # feature rotation wrt camera
+        translation = translation[:, 0] # feature/object translation wrt camera
+        rotation = rotation[:, 0]       # feature/object rotation wrt camera
         
-
         rotation = R.from_rotvec(rotation).as_matrix()
-        #print("ROT", R.from_matrix(rotation).as_euler("XYZ"))
         # to account for that this camera has x-axis pointing forward, y-axis left and z-axis up
         rotDelta = R.from_euler("XYZ", (-np.pi/2, np.pi/2, 0)).as_matrix()
-
         rotation = np.matmul(rotDelta, rotation)
-        translation = np.matmul(rotDelta, translation)
-        
-        #print("TRANS:", translation)
-        #print("ROT:", R.from_matrix(rotation).as_euler("XYZ"))
+        translation = np.matmul(rotDelta, translation)        
+        print("Range:", np.linalg.norm(translation))
 
-        translationTargetWRTCam = translation + np.matmul(rotation, targetTranslation)
-        print("TRANS:", translationTargetWRTCam)
+        translationObjectWRTTarget = -np.matmul(targetRotation.transpose(), targetTranslation)
+        translationCamWRTTarget = translationObjectWRTTarget - np.matmul(np.matmul(targetRotation.transpose(), rotation.transpose()), translation)
 
-        translationCamWRTTarget = -np.matmul(targetRotation.transpose(), targetTranslation) - np.matmul(rotation.transpose(), translation)
-        #translationCamWRTTarget = np.matmul(self.rotation.transpose(), translationCamWRTTarget) # ???
-        
         rotationCamWRTTarget = np.matmul(targetRotation.transpose(), rotation.transpose())
         rotationCamWRTTargetRotVec = R.from_matrix(rotationCamWRTTarget).as_rotvec()
+
         
-        #print("Trans", translationCamWRTTarget)
-        #print("Rot", rotationCamWRTTarget)
+        if self.controller == "PBVS1":
+            # PBVS version 1 in chaumette
+            def skew(m):
+                return [[   0, -m[2],  m[1]], 
+                        [ m[2],    0, -m[0]], 
+                        [-m[1], m[0],     0]]
 
-        Lx = [] # TODO
+            Lx = [] # TODO
+            v = -lamb*(translationObjectWRTTarget-translation + np.matmul(np.linalg.matrix_power(skew(translationCamWRTTarget), 1), rotationCamWRTTargetRotVec))
+            w = -lamb*rotationCamWRTTargetRotVec
+        
+        elif self.controller == "PBVS2":
+            # PBVS version 2 in chaumette
+            Lx = [] # TODO
+            v = -lamb*np.matmul(rotationCamWRTTarget.transpose(), translationCamWRTTarget)
+            w = -lamb*rotationCamWRTTargetRotVec
 
-        #v = -lamb*np.matmul(rotationCamWRTTarget.transpose(), translationCamWRTTarget)
-        v = lamb*translationTargetWRTCam
-        w = -lamb*rotationCamWRTTargetRotVec
+        else:
+            raise Exception("Invalid controller '{}'".format(self.controller))
+
 
         velocity = np.concatenate((v, w))
 
         err = np.concatenate((translationCamWRTTarget, rotationCamWRTTargetRotVec))
-        err = np.zeros(6)
 
         return velocity, err
 
 
-    def _controlIBVS(self, targets, featureSet, lamb=0.1):
+    def _controlIBVS(self, targets, featureSet, lamb, noiseStd):
         """
         TODO: should only take projected features as argument and estimate Z
         """
         features = featureSet.transformedFeatures()
         projectedFeatures = np.array([self.globalToImage(f) for f in features])
-        #projectedFeatures += np.random.normal(0, 0.03, projectedFeatures.shape)
+        projectedFeatures += np.random.normal(0, noiseStd, projectedFeatures.shape)
         success, rotation, translation = cv.solvePnP(np.array(features), 
                                                      np.array([(-y, -z) for y, z in projectedFeatures]), 
                                                      np.array([[1, 0, 0], [0, 1, 0], [0, 0, self.f]]), 
@@ -282,14 +288,17 @@ class Camera:
 
             LeLeStar = (np.array(Le) + np.array(LeStar))/2
 
-            if self.controlRule == "Le":
+            if self.controller == "IBVS1":
+                # IBVS version 1 in chaumette
                 L = Le
-            elif self.controlRule == "LeStar":
+            elif self.controller == "IBVS2":
+                # IBVS version 2 in chaumette
                 L = LeStar
-            elif self.controlRule == "LeLeStar":
+            elif self.controller == "IBVS3":
+                # IBVS version 3 in chaumette
                 L = LeLeStar
             else:
-                raise Exception("Invalid control rule '{}'".format(self.controlRule))
+                raise Exception("Invalid controller '{}'".format(self.controller))
 
             #Lx.append(np.row_stack(L))
             Lx.append(L)

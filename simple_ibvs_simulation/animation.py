@@ -105,13 +105,13 @@ class CameraAnimator:
         plt.show()
 
     def timeGen(self):
-        err = [np.inf]
+        vel = [np.inf]
         #threshold = 0.001
         threshold = -np.inf
         i = 0
-        while not all([e < threshold for e in err]):
+        while not all([abs(v) < threshold for v in vel]):
             yield i
-            v, err = self.camera.control(self.targets, self.featureSet, lamb=0.01)
+            vel, err = self.camera.control(self.targets, self.featureSet)
             i += 1
         print("Done")
         if self.play == False:
@@ -183,12 +183,12 @@ class CameraAnimator:
         if self.play:
             #self.controlCallback()
             #self.features = list(np.array(self._features) + np.random.normal(0, 0.1, np.array(self._features).shape))
-            v, err = self.camera.control(self.targets, self.featureSet, lamb=0.01)
-            threshold = 0
-            if not all([e < threshold for e in err]):
-                if v is not False:
-                    self.camera.move(v)
-                    self.velocities.append(v)
+            vel, err = self.camera.control(self.targets, self.featureSet)
+            threshold = 0.0001
+            if not all([abs(v) < threshold for v in vel]):
+                if vel is not False:
+                    self.camera.move(vel)
+                    self.velocities.append(vel)
                     self.cameraPositions.append(np.array(self.camera.translation))
                     # Add feature trajectory/positions
                     for feature, featPos in zip(self.features, self.featurePositions):
