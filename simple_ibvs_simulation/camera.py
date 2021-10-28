@@ -141,7 +141,8 @@ class Camera:
         Moves camera and adds camera position to trajectory
         """
         v = np.matmul(self.rotation, vel[:3])
-        w = np.matmul(self.rotation, vel[3:])
+        w = vel[3:]
+        #w = np.matmul(self.rotation, vel[3:])
         
         self.translation[0] += v[0]
         self.translation[1] += v[1]
@@ -149,7 +150,8 @@ class Camera:
 
         r = R.from_matrix(self.rotation)
         rw = R.from_rotvec(w)
-        r = rw*r
+        #r = rw*r
+        r = r*rw
         self.rotation = r.as_matrix()
 
     def interactionMatrix(self, X, y, z):
@@ -168,25 +170,30 @@ class Camera:
         else:
             raise Exception("Invalid controller '{}'".format(self.controller))
 
-    def _controlPBVS(self, targets, features, lamb=0.1):
+    def _controlPBVS(self, targets, featureSet, lamb=0.1):
         """
         targetTranlation and targetRotation expressed in feature frame
         """
-        
+        features = np.array(featureSet.features)
         # hard coded
-        targetTranslation = np.array([0, -0.33, 0])
+        targetTranslation = np.array([0, -3.33, 0])
+        #targetTranslation = np.array([3, 0, 0]) # ???
         targetRotation = R.from_euler("XYZ", (0, 0, np.pi/2)).as_matrix()
 
-        projectedFeatures = np.array([self.globalToImage(f) for f in features])
+        projectedFeatures = np.array([self.globalToImage(f) for f in featureSet.transformedFeatures()])
         #projectedFeatures += np.random.normal(0, 0.03, projectedFeatures.shape)
         #print(features)
         #features = np.array([(x, z) for x, y, z in features])
-        print(projectedFeatures)
-        projectedFeatures = np.array([(z, -y) for y, z in projectedFeatures])
-        success, rotation, translation = cv.solvePnP(np.array(features), 
+        #print(projectedFeatures)
+        projectedFeatures = np.array([(-y, -z) for y, z in projectedFeatures])
+        #print("PROJ", projectedFeatures)
+        #print("FEAT", features)
+        #input()
+        features = np.array(features, dtype=np.float32)
+        success, rotation, translation = cv.solvePnP(features, 
                                                      projectedFeatures, 
-                                                     np.array([[self.f, 0, self.imSize/2], [0, self.f, self.imSize/2], [0, 0, 1]]), 
-                                                     #np.array([[self.f, 0, 0], [0, self.f, 0], [0, 0, 1]]), 
+                                                     #np.array([[self.f, 0, self.imSize/2], [0, self.f, self.imSize/2], [0, 0, 1]]), 
+                                                     np.array([[self.f, 0, 0], [0, self.f, 0], [0, 0, 1]]), 
                                                      distCoeffs=np.zeros((4,1), dtype=np.float32), 
                                                      useExtrinsicGuess=False,
                                                      tvec=None,
@@ -195,41 +202,54 @@ class Camera:
 
         translation = translation[:, 0] # feature translation wrt camera
         rotation = rotation[:, 0]       # feature rotation wrt camera
+        
+
         rotation = R.from_rotvec(rotation).as_matrix()
+        #print("ROT", R.from_matrix(rotation).as_euler("XYZ"))
         # to account for that this camera has x-axis pointing forward, y-axis left and z-axis up
         rotDelta = R.from_euler("XYZ", (-np.pi/2, np.pi/2, 0)).as_matrix()
+
         rotation = np.matmul(rotDelta, rotation)
         translation = np.matmul(rotDelta, translation)
-
-        #print(translation)
-        #print(rotation)
-        #return np.zeros(6), np.zeros(6)
         
+        #print("TRANS:", translation)
+        #print("ROT:", R.from_matrix(rotation).as_euler("XYZ"))
+
+        translationTargetWRTCam = translation + np.matmul(rotation, targetTranslation)
+        print("TRANS:", translationTargetWRTCam)
+
         translationCamWRTTarget = -np.matmul(targetRotation.transpose(), targetTranslation) - np.matmul(rotation.transpose(), translation)
+        #translationCamWRTTarget = np.matmul(self.rotation.transpose(), translationCamWRTTarget) # ???
+        
         rotationCamWRTTarget = np.matmul(targetRotation.transpose(), rotation.transpose())
         rotationCamWRTTargetRotVec = R.from_matrix(rotationCamWRTTarget).as_rotvec()
         
+        #print("Trans", translationCamWRTTarget)
+        #print("Rot", rotationCamWRTTarget)
+
         Lx = [] # TODO
 
-        v = -lamb*np.matmul(rotationCamWRTTarget.transpose(), translationCamWRTTarget)
+        #v = -lamb*np.matmul(rotationCamWRTTarget.transpose(), translationCamWRTTarget)
+        v = lamb*translationTargetWRTCam
         w = -lamb*rotationCamWRTTargetRotVec
-        print(v)
-        print(w)
+
         velocity = np.concatenate((v, w))
 
         err = np.concatenate((translationCamWRTTarget, rotationCamWRTTargetRotVec))
+        err = np.zeros(6)
 
         return velocity, err
 
 
-    def _controlIBVS(self, targets, features, lamb=0.1):
+    def _controlIBVS(self, targets, featureSet, lamb=0.1):
         """
         TODO: should only take projected features as argument and estimate Z
         """
+        features = featureSet.transformedFeatures()
         projectedFeatures = np.array([self.globalToImage(f) for f in features])
-        projectedFeatures += np.random.normal(0, 0.03, projectedFeatures.shape)
+        #projectedFeatures += np.random.normal(0, 0.03, projectedFeatures.shape)
         success, rotation, translation = cv.solvePnP(np.array(features), 
-                                                     projectedFeatures, 
+                                                     np.array([(-y, -z) for y, z in projectedFeatures]), 
                                                      np.array([[1, 0, 0], [0, 1, 0], [0, 0, self.f]]), 
                                                      distCoeffs=np.zeros((4,1), dtype=np.float32), 
                                                      useExtrinsicGuess=False,

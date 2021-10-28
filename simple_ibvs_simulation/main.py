@@ -38,6 +38,17 @@ def rotationTest(controller, controlRule):
     targets = [[-0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [0.3, 0.3]]
     return camera, featureSet, targets
 
+def translationTest(controller, controlRule):
+    camera = Camera(translation=(-8, -2, 0), 
+                    euler=(0, 0, np.pi/4),
+                    controller=controller,
+                    controlRule=controlRule)
+    featureSet = FeatureSet([[1, 0, 1], [1, 0, -1], [-1, 0, -1], [-1, 0, 1]], 
+                            translation=(0, 0, 0), 
+                            euler=(0, 0, -np.pi/4))
+    targets = [[-0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [0.3, 0.3]]
+    return camera, featureSet, targets
+
 def normalTest(controller, controlRule):
     camera = Camera(translation=(3.5, -3/0.3, 0), 
                     euler=(0, 0, np.pi/2*0.9),
@@ -70,7 +81,9 @@ if __name__ == "__main__":
     controlRule = args.rule
     if args.scenario == "normal":
         camera, featureSet, targets = normalTest(controller, controlRule)
-    elif args.scenario == "rot":
+    elif args.scenario == "translation":
+        camera, featureSet, targets = translationTest(controller, controlRule)
+    elif args.scenario == "rotation":
         camera, featureSet, targets = rotationTest(controller, controlRule)
     elif args.scenario == "triangle":
         camera, featureSet, targets = triangle(controller, controlRule)
@@ -79,7 +92,8 @@ if __name__ == "__main__":
     else:
         raise Exception("Invalid scenario '{}'".format(args.scenario))
     
-    cameraAnimator = CameraAnimator(camera, featureSet.transformedFeatures(), targets, None)
+    #cameraAnimator = CameraAnimator(camera, featureSet.transformedFeatures(), targets, None)
+    cameraAnimator = CameraAnimator(camera, featureSet, targets, None)
     cameraAnimator.animate()
     #cameraAnimator.anim.save('basic_animation.mp4', fps=30, extra_args=['-vcodec', 'libx264'])
     cameraAnimator.show()

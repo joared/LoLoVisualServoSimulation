@@ -5,16 +5,17 @@ import matplotlib.animation as animation
 from matplotlib.widgets import Button
 
 class CameraAnimator:
-    def __init__(self, camera, features, targets, controlCallback):
+    def __init__(self, camera, featureSet, targets, controlCallback):
         self.camera = camera
-        self.features = features.copy() # noised features
-        self._features = features.copy() # un-noised features
+        self.features = featureSet.transformedFeatures() 
+        self._features = np.array(featureSet.features)
+        self.featureSet = featureSet
         self.targets = targets
         self.controlCallback = controlCallback
         # camera trajectory
         self.cameraPositions = []
         # feature trajectories
-        self.featurePositions = [[] for _ in features]
+        self.featurePositions = [[] for _ in self.features]
         # errors
         self.velocities = []
 
@@ -110,8 +111,9 @@ class CameraAnimator:
         i = 0
         while not all([e < threshold for e in err]):
             yield i
-            v, err = self.camera.control(self.targets, self.features, lamb=0.01)
+            v, err = self.camera.control(self.targets, self.featureSet, lamb=0.01)
             i += 1
+        print("Done")
         if self.play == False:
             self.cameraPositions = []
             self.featurePositions = [[] for _ in self.features]
@@ -119,6 +121,12 @@ class CameraAnimator:
             self.camera.reset()
 
     def init(self):
+        #################################### Hardcoded target pose
+        targetTranslation = np.array([0, -3.3, 0]) 
+        targetPoint = self.featureSet.translation + np.matmul(self.featureSet.rotation, targetTranslation)
+        self.ax.scatter(*targetPoint)
+        #################################### /Hardcoded target pose
+
         # init is called twice, need to reset lists
         self.referenceLines = []
         self.featureTrajectories = []
@@ -175,8 +183,8 @@ class CameraAnimator:
         if self.play:
             #self.controlCallback()
             #self.features = list(np.array(self._features) + np.random.normal(0, 0.1, np.array(self._features).shape))
-            v, err = self.camera.control(self.targets, self.features, lamb=0.01)    
-            threshold = 0.001
+            v, err = self.camera.control(self.targets, self.featureSet, lamb=0.01)
+            threshold = 0
             if not all([e < threshold for e in err]):
                 if v is not False:
                     self.camera.move(v)
