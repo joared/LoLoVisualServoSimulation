@@ -35,7 +35,7 @@ class FeatureSet:
 class Camera:
     # https://stackoverflow.com/questions/11140163/plotting-a-3d-cube-a-sphere-and-a-vector-in-matplotlib
     def __init__(self, translation=(0,0,0), euler=(0, 0, 0), controller="IBVS1", lamb=0.01, noiseStd=0):
-        assert controller in ("IBVS1", "IBVS2", "PBVS1", "PBVS2", "PBVS3")
+        assert controller in ("IBVS1", "IBVS2", "IBVS3", "PBVS1", "PBVS2")
 
         f = 1 # focal length
         self.f = f
@@ -180,7 +180,7 @@ class Camera:
         """
         targetTranlation and targetRotation expressed in feature frame
         """
-        features = np.array(featureSet.features)
+        features = np.array(featureSet.features, dtype=np.float32)
         # hard coded
         targetTranslation = np.array([0, -3.33, 0])
         #targetTranslation = np.array([3, 0, 0]) # ???
@@ -191,7 +191,7 @@ class Camera:
         
         # convert to correct image coordinates for solvePnP
         projectedFeatures = np.array([(-y, -z) for y, z in projectedFeatures])
-        features = np.array(features, dtype=np.float32)
+        #features = np.array(features, dtype=np.float32)
         success, rotation, translation = cv.solvePnP(features, 
                                                      projectedFeatures, 
                                                      #np.array([[self.f, 0, self.imSize/2], [0, self.f, self.imSize/2], [0, 0, 1]]), 
@@ -227,7 +227,7 @@ class Camera:
                         [-m[1], m[0],     0]]
 
             Lx = [] # TODO
-            v = -lamb*(translationObjectWRTTarget-translation + np.matmul(np.linalg.matrix_power(skew(translationCamWRTTarget), 1), rotationCamWRTTargetRotVec))
+            v = -lamb*(translationObjectWRTTarget-translation + np.matmul(np.linalg.matrix_power(skew(translation), 1), rotationCamWRTTargetRotVec))
             w = -lamb*rotationCamWRTTargetRotVec
         
         elif self.controller == "PBVS2":
@@ -252,9 +252,9 @@ class Camera:
         TODO: should only take projected features as argument and estimate Z
         """
         features = featureSet.transformedFeatures()
-        projectedFeatures = np.array([self.globalToImage(f) for f in features])
+        projectedFeatures = np.array([self.globalToImage(f) for f in featureSet.transformedFeatures()])
         projectedFeatures += np.random.normal(0, noiseStd, projectedFeatures.shape)
-        success, rotation, translation = cv.solvePnP(np.array(features), 
+        success, rotation, translation = cv.solvePnP(np.array(featureSet.features, dtype=np.float32), 
                                                      np.array([(-y, -z) for y, z in projectedFeatures]), 
                                                      np.array([[1, 0, 0], [0, 1, 0], [0, 0, self.f]]), 
                                                      distCoeffs=np.zeros((4,1), dtype=np.float32), 
@@ -265,7 +265,7 @@ class Camera:
 
         #print(translation)
         estX = translation[2][0] # estimate depth 
-        #print(estX)
+        print(estX)
 
         Lx = []
 

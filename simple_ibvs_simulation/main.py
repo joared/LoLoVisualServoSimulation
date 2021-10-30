@@ -2,10 +2,10 @@ import numpy as np
 from camera import Camera, FeatureSet
 from animation import CameraAnimator
 
-def triangle(*cameraArgs):
+def triangleTest(**cameraArgs):
     camera = Camera(translation=(-5, -0.9, -1.5), 
                     euler=(-.5, -0.1, 0.1), 
-                    *cameraArgs)
+                    **cameraArgs)
 
     featureSet = FeatureSet([[-1, 0, 0], [0, 0, 1], [1, 0, 0]], 
                             translation=(0, 0, 0), 
@@ -14,12 +14,12 @@ def triangle(*cameraArgs):
 
     return camera, featureSet, targets
 
-def stressTest(*cameraArgs):
+def stressTest(**cameraArgs):
     camera = Camera(translation=(-6, -1, -0.4), 
                     euler=(-.55, 0.2, 0.2), 
     #camera = Camera(translation=(-5, -1.2, -1.5),
     #                euler=(-.5, -0.1, 0.1), 
-                    *cameraArgs)
+                    **cameraArgs)
 
     featureSet = FeatureSet([[1, 0, 1], [1, 0, -1], [-1, 0, -1], [-1, 0, 1]], 
                             translation=(0, 0, 0), 
@@ -29,10 +29,10 @@ def stressTest(*cameraArgs):
 
     return camera, featureSet, targets
 
-def rollTest(*cameraArgs):
+def rollTest(**cameraArgs):
     camera = Camera(translation=(0, -1/0.3, 0), 
                     euler=(0, 0, np.pi/2),
-                    *cameraArgs)
+                    **cameraArgs)
 
     featureSet = FeatureSet([[1, 0, 1], [1, 0, -1], [-1, 0, -1], [-1, 0, 1]], 
                             translation=(0, 0, 0), 
@@ -41,10 +41,10 @@ def rollTest(*cameraArgs):
 
     return camera, featureSet, targets
 
-def yawTest(*cameraArgs):
+def yawTest(**cameraArgs):
     camera = Camera(translation=(0, -1/0.3, 0), 
                     euler=(0, 0, np.pi/2.7),
-                    *cameraArgs)
+                    **cameraArgs)
 
     featureSet = FeatureSet([[1, 0, 1], [1, 0, -1], [-1, 0, -1], [-1, 0, 1]], 
                             translation=(0, 0, 0), 
@@ -56,7 +56,7 @@ def yawTest(*cameraArgs):
 def translationTest(*cameraArgs):
     camera = Camera(translation=(-8, -2, 0), 
                     euler=(0, 0, np.pi/4),
-                    *cameraArgs)
+                    **cameraArgs)
 
     featureSet = FeatureSet([[1, 0, 1], [1, 0, -1], [-1, 0, -1], [-1, 0, 1]], 
                             translation=(0, 0, 0), 
@@ -65,10 +65,10 @@ def translationTest(*cameraArgs):
     targets = [[-0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [0.3, 0.3]]
     return camera, featureSet, targets
 
-def normalTest(*cameraArgs):
+def normalTest(**cameraArgs):
     camera = Camera(translation=(3.5, -3/0.3, 0), 
                     euler=(0, 0, np.pi/2*0.9),
-                    *cameraArgs)
+                    **cameraArgs)
 
     featureSet = FeatureSet([[1, 0, 1], [1, 0, -1], [-1, 0, -1], [-1, 0, 1]], 
                             translation=(0, 0, 0), 
@@ -98,23 +98,35 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print(args)
 
-    cameraArgs = (args.controller, args.lamb, args.noiseStd)
+    cameraArgs = {"controller": args.controller, 
+                  "lamb": args.lamb, 
+                  "noiseStd": args.noiseStd}
 
+    tests = (normalTest,
+             translationTest,
+             rollTest,
+             yawTest,
+             triangleTest,
+             stressTest)
+
+    dictTests = {t.__name__: t for t in tests}
+    camera, featureSet, targets = dictTests[args.scenario + "Test"](**cameraArgs)
+    """
     if args.scenario == "normal":
-        camera, featureSet, targets = normalTest(*cameraArgs)
+        camera, featureSet, targets = normalTest(**cameraArgs)
     elif args.scenario == "translation":
-        camera, featureSet, targets = translationTest(*cameraArgs)
+        camera, featureSet, targets = translationTest(**cameraArgs)
     elif args.scenario == "roll":
-        camera, featureSet, targets = rollTest(*cameraArgs)
+        camera, featureSet, targets = rollTest(**cameraArgs)
     elif args.scenario == "yaw":
-        camera, featureSet, targets = yawTest(*cameraArgs)
+        camera, featureSet, targets = yawTest(**cameraArgs)
     elif args.scenario == "triangle":
-        camera, featureSet, targets = triangle(*cameraArgs)
+        camera, featureSet, targets = triangleTest(**cameraArgs)
     elif args.scenario == "stress":
-        camera, featureSet, targets = stressTest(*cameraArgs)
+        camera, featureSet, targets = stressTest(**cameraArgs)
     else:
         raise Exception("Invalid scenario '{}'".format(args.scenario))
-    
+    """
     cameraAnimator = CameraAnimator(camera, featureSet, targets, None)
     cameraAnimator.animate()
     #cameraAnimator.anim.save('basic_animation.mp4', fps=30, extra_args=['-vcodec', 'libx264'])
